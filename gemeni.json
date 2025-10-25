@@ -1,0 +1,407 @@
+{
+    "id": "e4f8d6f5-a7b2-4c9d-8e1f-d2c0b3a4e5f6",
+    "name": "RAG System for Google Drive Course - Final",
+    "description": "RAG system workflow with Google Drive triggers and AI agent.",
+    "active": false,
+    "nodes": [
+        {
+            "parameters": {
+                "folderId": "YOUR_GOOGLE_DRIVE_FOLDER_ID",
+                "events": [
+                    "FILE_CREATED"
+                ],
+                "resource": "folder",
+                "interval": 5
+            },
+            "name": "Google Drive Trigger (Create)",
+            "type": "n8n-nodes-base.googleDriveTrigger",
+            "typeVersion": 1,
+            "executeOnce": false,
+            "id": "e7b0c80c-7b4d-4e9b-9c3f-c30d3e23b123",
+            "credentials": {
+                "googleDriveApi": {
+                    "id": "YOUR_GOOGLE_DRIVE_CREDENTIAL_NAME",
+                    "name": "Google Drive account"
+                }
+            },
+            "position": [
+                200,
+                150
+            ]
+        },
+        {
+            "parameters": {
+                "options": {},
+                "fileId": "={{ $json.resource.id }}",
+                "fileType": "={{ $json.resource.mimeType }}"
+            },
+            "name": "Set File ID & Type (Create)",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 2,
+            "id": "c1f72922-0d12-40c2-9a00-1c39c894d3d4",
+            "position": [
+                400,
+                150
+            ]
+        },
+        {
+            "parameters": {
+                "fileId": "={{ $json.fileId }}",
+                "operation": "download",
+                "resource": "file"
+            },
+            "name": "Download File",
+            "type": "n8n-nodes-base.googleDrive",
+            "typeVersion": 2,
+            "id": "d0f885e3-8f0a-40a1-9685-614f2e30b1b1",
+            "credentials": {
+                "googleDriveApi": {
+                    "id": "YOUR_GOOGLE_DRIVE_CREDENTIAL_NAME",
+                    "name": "Google Drive account"
+                }
+            },
+            "position": [
+                600,
+                150
+            ]
+        },
+        {
+            "parameters": {
+                "mode": "json",
+                "value1": "={{ $json.fileType }}",
+                "conditions": [
+                    {
+                        "value1": "application/pdf",
+                        "type": "string",
+                        "value2": "application/pdf"
+                    },
+                    {
+                        "value1": "application/vnd.google-apps.document",
+                        "type": "string",
+                        "value2": "application/vnd.google-apps.document"
+                    }
+                ],
+                "defaultCase": 1
+            },
+            "name": "Switch (File Type)",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 1,
+            "id": "a904d6f4-c2c3-44d5-8120-0d3c004c0000",
+            "position": [
+                800,
+                150
+            ]
+        },
+        {
+            "parameters": {
+                "fileType": "pdf"
+            },
+            "name": "Extract Text from PDF",
+            "type": "n8n-nodes-langchain.extractFromFile",
+            "typeVersion": 1,
+            "id": "e0e334a5-9a40-4b2a-8c8d-69d2d4c4a4a4",
+            "position": [
+                1000,
+                50
+            ]
+        },
+        {
+            "parameters": {
+                "chunkSize": 1000,
+                "chunkOverlap": 200,
+                "input": "={{ $json.content }}",
+                "splitter": "recursiveCharacterText"
+            },
+            "name": "Recursive Text Splitter",
+            "type": "n8n-nodes-langchain.textSplitter",
+            "typeVersion": 1,
+            "id": "f5f5f5f5-b3b3-4d4d-8e8e-c7c7c7c7c7c7",
+            "position": [
+                1200,
+                50
+            ]
+        },
+        {
+            "parameters": {
+                "vectorStore": "superbaseVectorStore",
+                "operation": "addDocuments",
+                "dataProperty": "text",
+                "table": "documents",
+                "embeddingBatchSize": 200,
+                "metadata": [
+                    {
+                        "name": "fileId",
+                        "value": "={{ $json.fileId }}",
+                        "type": "set"
+                    },
+                    {
+                        "name": "filename",
+                        "value": "={{ $json.resource.title }}",
+                        "type": "set"
+                    }
+                ],
+                "embeddings": {
+                    "model": "text-embedding-3-small",
+                    "type": "openAi"
+                }
+            },
+            "name": "Supabase Vector Store (Add)",
+            "type": "n8n-nodes-langchain.superbaseVectorStore",
+            "typeVersion": 1,
+            "id": "a3a3a3a3-d4d4-4e4e-8f8f-b9b9b9b9b9b9",
+            "credentials": {
+                "superbaseVectorStoreApi": {
+                    "id": "YOUR_SUPERBASE_CREDENTIAL_NAME",
+                    "name": "Supabase Service Role"
+                },
+                "openAiApi": {
+                    "id": "YOUR_OPENAI_CREDENTIAL_NAME",
+                    "name": "OpenAI account"
+                }
+            },
+            "position": [
+                1400,
+                50
+            ]
+        },
+        {
+            "parameters": {
+                "folderId": "YOUR_GOOGLE_DRIVE_FOLDER_ID",
+                "events": [
+                    "FILE_UPDATED"
+                ],
+                "resource": "folder",
+                "interval": 5
+            },
+            "name": "Google Drive Trigger (Update)",
+            "type": "n8n-nodes-base.googleDriveTrigger",
+            "typeVersion": 1,
+            "executeOnce": false,
+            "id": "b8b8b8b8-6a6a-4f4f-9e9e-d1d1d1d1d1d1",
+            "credentials": {
+                "googleDriveApi": {
+                    "id": "YOUR_GOOGLE_DRIVE_CREDENTIAL_NAME",
+                    "name": "Google Drive account"
+                }
+            },
+            "position": [
+                200,
+                450
+            ]
+        },
+        {
+            "parameters": {
+                "options": {},
+                "fileId": "={{ $json.resource.id }}",
+                "fileType": "={{ $json.resource.mimeType }}"
+            },
+            "name": "Set File ID & Type (Update)",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 2,
+            "id": "c2c2c2c2-0d12-40c2-9a00-1c39c894d3d4",
+            "position": [
+                400,
+                450
+            ]
+        },
+        {
+            "parameters": {
+                "vectorStore": "superbaseVectorStore",
+                "operation": "deleteDocumentsById",
+                "table": "documents",
+                "id": "={{ $json.fileId }}",
+                "options": {
+                    "alwaysOutputData": true
+                }
+            },
+            "name": "Supabase Vector Store (Delete)",
+            "type": "n8n-nodes-langchain.superbaseVectorStore",
+            "typeVersion": 1,
+            "id": "a4a4a4a4-d4d4-4e4e-8f8f-b9b9b9b9b9b9",
+            "credentials": {
+                "superbaseVectorStoreApi": {
+                    "id": "YOUR_SUPERBASE_CREDENTIAL_NAME",
+                    "name": "Supabase Service Role"
+                }
+            },
+            "position": [
+                600,
+                450
+            ]
+        },
+        {
+            "parameters": {
+                "mode": "telegram"
+            },
+            "name": "Chat Trigger",
+            "type": "n8n-nodes-base.chatTrigger",
+            "typeVersion": 1,
+            "id": "b3b3b3b3-0d12-40c2-9a00-1c39c894d3d4",
+            "position": [
+                200,
+                750
+            ]
+        },
+        {
+            "parameters": {
+                "memory": "postgresChatMemory",
+                "model": "gpt-3.5-turbo",
+                "systemMessage": "You are a helpful assistant specialized in answering questions about the course curriculum and documents provided. Keep your answers concise and accurate.",
+                "tools": [
+                    "vectorStoreQuestionAnswerTool"
+                ]
+            },
+            "name": "AI Agent",
+            "type": "n8n-nodes-langchain.agent",
+            "typeVersion": 2,
+            "id": "c4c4c4c4-7b4d-4e9b-9c3f-c30d3e23b123",
+            "credentials": {
+                "openAiApi": {
+                    "id": "YOUR_OPENAI_CREDENTIAL_NAME",
+                    "name": "OpenAI account"
+                }
+            },
+            "position": [
+                600,
+                750
+            ]
+        },
+        {
+            "parameters": {
+                "memory": "postgresChatMemory",
+                "host": "YOUR_SUPABASE_POSTGRES_HOST",
+                "database": "postgres",
+                "user": "YOUR_SUPABASE_POSTGRES_USER",
+                "password": "YOUR_SUPABASE_POSTGRES_PASSWORD",
+                "port": 6543,
+                "tableName": "chat_history",
+                "contextWindow": 20
+            },
+            "name": "Postgres Chat Memory",
+            "type": "n8n-nodes-langchain.postgresChatMemory",
+            "typeVersion": 1,
+            "id": "d5d5d5d5-0d12-40c2-9a00-1c39c894d3d4",
+            "credentials": {},
+            "position": [
+                400,
+                850
+            ]
+        },
+        {
+            "parameters": {
+                "tool": "vectorStoreQuestionAnswerTool",
+                "model": "gpt-3.5-turbo",
+                "vectorStore": "superbaseVectorStore",
+                "table": "documents",
+                "embeddings": {
+                    "model": "text-embedding-3-small",
+                    "type": "openAi"
+                }
+            },
+            "name": "Vector Store QA Tool",
+            "type": "n8n-nodes-langchain.vectorStoreQuestionAnswerTool",
+            "typeVersion": 1,
+            "id": "e6e6e6e6-7b4d-4e9b-c30d3e23b123",
+            "credentials": {
+                "superbaseVectorStoreApi": {
+                    "id": "YOUR_SUPERBASE_CREDENTIAL_NAME",
+                    "name": "Supabase Service Role"
+                },
+                "openAiApi": {
+                    "id": "YOUR_OPENAI_CREDENTIAL_NAME",
+                    "name": "OpenAI account"
+                }
+            },
+            "position": [
+                400,
+                650
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "reply",
+                "message": "={{ $json.answer }}"
+            },
+            "name": "Respond To Chat",
+            "type": "n8n-nodes-base.respondToChat",
+            "typeVersion": 1,
+            "id": "f7f7f7f7-c2c3-44d5-8120-0d3c004c0000",
+            "position": [
+                800,
+                750
+            ]
+        }
+    ],
+    "connections": {},
+    "settings": {
+        "saveDataSuccess": true,
+        "saveDataError": true,
+        "theme": "light",
+        "pin": ""
+    },
+    "versionId": "b1c2d3e4-f5a6-7b8c-9d0e-1f2a3b4c5d6e",
+    "triggerCount": 0,
+    "executionCount": 0,
+    "nodesUi": {
+        "e7b0c80c-7b4d-4e9b-9c3f-c30d3e23b123": {
+            "x": 200,
+            "y": 150
+        },
+        "c1f72922-0d12-40c2-9a00-1c39c894d3d4": {
+            "x": 400,
+            "y": 150
+        },
+        "d0f885e3-8f0a-40a1-9685-614f2e30b1b1": {
+            "x": 600,
+            "y": 150
+        },
+        "a904d6f4-c2c3-44d5-8120-0d3c004c0000": {
+            "x": 800,
+            "y": 150
+        },
+        "e0e334a5-9a40-4b2a-8c8d-69d2d4c4a4a4": {
+            "x": 1000,
+            "y": 50
+        },
+        "f5f5f5f5-b3b3-4d4d-8e8e-c7c7c7c7c7c7": {
+            "x": 1200,
+            "y": 50
+        },
+        "a3a3a3a3-d4d4-4e4e-8f8f-b9b9b9b9b9b9": {
+            "x": 1400,
+            "y": 50
+        },
+        "b8b8b8b8-6a6a-4f4f-9e9e-d1d1d1d1d1d1": {
+            "x": 200,
+            "y": 450
+        },
+        "c2c2c2c2-0d12-40c2-9a00-1c39c894d3d4": {
+            "x": 400,
+            "y": 450
+        },
+        "a4a4a4a4-d4d4-4e4e-8f8f-b9b9b9b9b9b9": {
+            "x": 600,
+            "y": 450
+        },
+        "b3b3b3b3-0d12-40c2-9a00-1c39c894d3d4": {
+            "x": 200,
+            "y": 750
+        },
+        "c4c4c4c4-7b4d-4e9b-9c3f-c30d3e23b123": {
+            "x": 600,
+            "y": 750
+        },
+        "d5d5d5d5-0d12-40c2-9a00-1c39c894d3d4": {
+            "x": 400,
+            "y": 850
+        },
+        "e6e6e6e6-7b4d-4e9b-c30d3e23b123": {
+            "x": 400,
+            "y": 650
+        },
+        "f7f7f7f7-c2c3-44d5-8120-0d3c004c0000": {
+            "x": 800,
+            "y": 750
+        }
+    }
+}

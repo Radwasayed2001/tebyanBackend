@@ -171,12 +171,9 @@ function normalizeAi(parsed, fallbackNote = '') {
 }
 
 // New: normalize outputs specifically for behavioral (BIP) responses
-// استبدل دالة normalizeBehavior القديمة بهذه الدالة المحسّنة
 function normalizeBehavior(parsed, fallbackNote = '') {
-    // مساعدات صغيرة
     const splitSentences = (text) => {
         if (!text || typeof text !== 'string') return [];
-        // نقسم عند . ؟ ! ; أو أسطر جديدة — وننقّح المساحات
         return text
             .split(/[\.\?\!\;\n]+/)
             .map(s => s.trim())
@@ -201,11 +198,9 @@ function normalizeBehavior(parsed, fallbackNote = '') {
         return keywords.some(k => low.includes(k));
     };
 
-    // كلمات مفتاحية عربية بسيطة (يمكن تعديل أو توسيعها)
     const antecedentKeywords = ['قبل', 'عند', 'أثناء', 'مسبق', 'سابقاً', 'قبل السلوك'];
     const consequenceKeywords = ['بعد', 'عقب', 'ينتج', 'نتيجة', 'يحصل', 'يحصل على', 'يؤدي إلى', 'ثم'];
 
-    // canonical object
     const canonical = {
         behavior_goal: '',
         summary: '',
@@ -230,11 +225,9 @@ function normalizeBehavior(parsed, fallbackNote = '') {
         return canonical;
     }
 
-    // أسهل الحقول أولاً
     canonical.summary = parsed.summary || parsed.behavior_goal || parsed.smart_goal || parsed.overview || '';
     canonical.behavior_goal = parsed.behavior_goal || parsed.smart_goal || parsed.summary || '';
 
-    // محاولات مباشرة لتحويل الحقول إذا كانت موجودة (قوائم أو نصوص)
     const toArrayStrings = (v) => {
         if (!v && v !== 0) return [];
         if (Array.isArray(v)) return v.map(String).map(s => s.trim()).filter(Boolean);
@@ -250,12 +243,10 @@ function normalizeBehavior(parsed, fallbackNote = '') {
     canonical.antecedent_strategies = toArrayStrings(parsed.antecedent_strategies || parsed.antecedentStrategies || parsed.prevention || parsed.proactive || parsed.prep);
     canonical.consequence_strategies = toArrayStrings(parsed.consequence_strategies || parsed.consequenceStrategies || parsed.response_strategies || parsed.reactive || parsed.reinforcement);
 
-    // replacement behavior parsing
     if (parsed.replacement_behavior && typeof parsed.replacement_behavior === 'object') {
         canonical.replacement_behavior.skill = parsed.replacement_behavior.skill || parsed.replacement_behavior.name || parsed.replacement_behavior.label || '';
         canonical.replacement_behavior.modality = parsed.replacement_behavior.modality || parsed.replacement_behavior.medium || '';
     } else if (typeof parsed.replacement_behavior === 'string') {
-        // لو جت كسطر نصي نحاول نقسم "مهارة | وسيلة" أو "." أو "-"
         const s = parsed.replacement_behavior;
         const parts = s.split(/\||\-|\:/).map(p => p.trim()).filter(Boolean);
         canonical.replacement_behavior.skill = parts[0] || s;
@@ -265,14 +256,12 @@ function normalizeBehavior(parsed, fallbackNote = '') {
         canonical.replacement_behavior.modality = parsed.replacement_modality || '';
     }
 
-    // data_collection
     canonical.data_collection.metric = (parsed.data_collection && (parsed.data_collection.metric || parsed.data_collection.measure)) || parsed.measurement?.type || parsed.metric || '';
     canonical.data_collection.tool = (parsed.data_collection && (parsed.data_collection.tool || parsed.data_collection.instrument)) || parsed.measurement?.sheet || parsed.tool || '';
 
     canonical.review_after_days = parsed.review_after_days || parsed.meta?.review_after_days || parsed.review || 14;
     canonical.safety_flag = !!parsed.safety_flag || !!parsed.meta?.safety_flag || (parsed.severity === 'شديد') || false;
 
-    // suggestions/customizations normalize
     canonical.suggestions = toArrayStrings(parsed.suggestions || parsed.recommendations || parsed.advice);
     canonical.customizations = toArrayStrings(parsed.customizations || parsed.tweaks || parsed.modifications);
 
@@ -282,37 +271,30 @@ function normalizeBehavior(parsed, fallbackNote = '') {
         notes: parsed._notes || parsed.notes || ''
     };
 
-    // --- Heuristic extraction: إذا كانت القوائم فارغة نحاول البحث داخل أي نص في الـ parsed ---
     const allStrings = collectStrings(parsed).flatMap(s => splitSentences(String(s)));
-    // antecedents candidates
     if (!canonical.antecedents.length) {
         const cand = allStrings.filter(s => containsKeyword(s, antecedentKeywords));
         if (cand.length) canonical.antecedents = cand;
     }
-    // consequences candidates
     if (!canonical.consequences.length) {
         const cand = allStrings.filter(s => containsKeyword(s, consequenceKeywords));
         if (cand.length) canonical.consequences = cand;
     }
-    // antecedent strategies fallback from suggestions/customizations
     if (!canonical.antecedent_strategies.length) {
         const cand = canonical.suggestions.length ? canonical.suggestions.map(s => (typeof s === 'object' ? s.text || '' : String(s))) : [];
         canonical.antecedent_strategies = cand.slice(0, 6);
     }
-    // consequence strategies fallback from customizations/suggestions
     if (!canonical.consequence_strategies.length) {
         const cand = canonical.customizations.length ? canonical.customizations.map(s => (typeof s === 'object' ? s.text || '' : String(s))) : [];
         canonical.consequence_strategies = cand.slice(0, 6);
     }
 
-    // extra fallback: if consequences still empty, try to infer "نتيجة" from summary (جملة تحتوي كلمات "يحصل على" أو "يؤدي")
     if (!canonical.consequences.length && canonical.summary) {
         const sents = splitSentences(canonical.summary).filter(Boolean);
         const cand = sents.filter(s => containsKeyword(s, consequenceKeywords));
         if (cand.length) canonical.consequences = cand;
     }
 
-    // Make sure arrays are unique and trimmed
     const uniq = (arr) => Array.from(new Set((arr || []).map(String).map(s => s.trim()).filter(Boolean)));
 
     canonical.antecedents = uniq(canonical.antecedents);
@@ -322,7 +304,6 @@ function normalizeBehavior(parsed, fallbackNote = '') {
     canonical.suggestions = uniq(canonical.suggestions);
     canonical.customizations = uniq(canonical.customizations);
 
-    // final tiny fallback: if nothing في antecedents/consequences نضع empty arrays (لا نضع "لا توجد بيانات" كنص)
     if (!canonical.antecedents.length) canonical.antecedents = [];
     if (!canonical.consequences.length) canonical.consequences = [];
 
@@ -349,7 +330,8 @@ export async function POST(request) {
             curriculumQuery,
             audioUrl,
             analysisType = 'general', // NEW: frontend can send analysisType: 'behavior'
-            planType // Alternative parameter name for plan type
+            planType, // Alternative parameter name for plan type
+            messagesForModel // optional override from client
         } = body || {};
 
         // Support both analysisType and planType parameters
@@ -386,95 +368,6 @@ export async function POST(request) {
         console.log('--- relevant (truncated) ---');
         console.log(relevant ? relevant.slice(0, 1000) : '(no relevant curriculum)');
 
-        // MOCK mode for local dev: return behavior-shaped fakeParsed when requested
-        if (process.env.MOCK_AI === '1') {
-            if (effectiveAnalysisType === 'behavior') {
-                const fakeParsedBehavior = {
-                    behavior_goal: 'خلال أسبوعين، سيستخدم الطفل بطاقة طلب استراحة بدل السلوك المساعد، بمعدل 80% استقلالية.',
-                    summary: 'السلوك يبدو متعلّقاً بالحصول على انتباه والهروب من المطالب.',
-                    antecedents: ["مطالب أكاديمية متواصلة بدون استراحة", "صفوف صاخبة أو مطالب وقتية"],
-                    consequences: ["يحصل على انتباه المعلم عند رفضه", "يُعطى استراحة (الهروب) في بعض الأحيان"],
-                    function_analysis: "هروب/تجنب من المهمة + جذب انتباه المعلم",
-                    antecedent_strategies: ["تقديم فواصل قصيرة قبل المهمة", "تقسيم المهمة إلى أجزاء أصغر"],
-                    replacement_behavior: { skill: "طلب استراحة بواسطة بطاقة", modality: "بطاقة/إشارة" },
-                    consequence_strategies: ["تعزيز فوري عند استخدام البطاقة", "تجاهل السلوك الإشكالي طالما لا خطر"],
-                    data_collection: { metric: "تكرار", tool: "ورقة تسجيل عدد المرات لكل جلسة" },
-                    review_after_days: 14,
-                    safety_flag: false,
-                    suggestions: ["تقليل وقت المهمة تدريجياً", "تدريب على استخدام البطاقة في بيئات مختلفة"],
-                    customizations: ["استخدام نموذج لفظي بسيط للطفل", "إضافة تعزيز بصري"],
-                    parent_instructions: "تمرنوا على استخدام البطاقة يومياً لمدة 5 دقائق."
-                };
-
-                const normalizedChecked = normalizeBehavior(fakeParsedBehavior, fakeParsedBehavior.summary);
-                normalizedChecked.suggestions = ensureSuggestionObjects(normalizedChecked.suggestions || []);
-                normalizedChecked.customizations = ensureSuggestionObjects(normalizedChecked.customizations || []);
-
-                const resultMock = {
-                    ai: {
-                        raw: fakeParsedBehavior,
-                        normalized: normalizedChecked,
-                        suggestions: normalizedChecked.suggestions.map(s => s.text),
-                        customizations: normalizedChecked.customizations.map(c => c.text),
-                    },
-                    meta: { sentAt: new Date().toISOString(), usedCurriculum: !!relevant }
-                };
-
-                return jsonResponse(resultMock, { status: 200, origin });
-            } else {
-                // general fakeParsed (kept similar to pre-existing)
-                const fakeParsed = {
-                    smart_goal: 'خلال شهر، سيقوم الطفل هاجر بإكمال 4 خطوات...',
-                    summary: 'الطفل استجاب جيداً للنمذجة.',
-                    teaching_strategy: 'النمذجة بالفيديو والتلقين الجسدي الكامل',
-                    task_analysis_steps: [
-                        "فتح صنبور الماء",
-                        "تبليل اليدين",
-                        "وضع الصابون",
-                        "فرك لمدة 10 ثوان",
-                        "شطف اليدين",
-                        "تجفيف اليدين"
-                    ],
-                    subgoals: [
-                        "الأسبوع 1: إتقان الخطوتين 1 و 2",
-                        "الأسبوع 2: إضافة الخطوتين 3 و 4"
-                    ],
-                    activities: [
-                        { type: "لعب حسي", name: "لعبة الفقاعات" },
-                        { type: "بطاقات", name: "بطاقات تسلسل" }
-                    ],
-                    execution_plan: [
-                        "تهيئة: عرض البطاقات (2 دقيقة)",
-                        "تنفيذ: 4 محاولات مع دعم"
-                    ],
-                    reinforcement: { type: "ملصق نجمة", schedule: "بعد كل نجاح" },
-                    measurement: { type: "Accuracy", sheet: "ورقة بيانات" },
-                    generalization_plan: ["تطبيق في المنزل"],
-                    accommodations: ["مؤقت بصري", "منشفة مفضلة"],
-                    suggestions: ['تقسيم المهمة', 'مكافأة فورية'],
-                    customizations: ['تقليل مدة النشاط', 'استخدام بطاقات بصرية'],
-                    parent_instructions: 'راجع الخطة المنزلية مع ولي الأمر'
-                };
-
-                const normalized = normalizeAi(fakeParsed, fakeParsed.summary);
-                const normalizedChecked = { ...normalized };
-                normalizedChecked.suggestions = ensureSuggestionObjects(normalized.suggestions || []);
-                normalizedChecked.customizations = ensureSuggestionObjects(normalized.customizations || []);
-
-                const resultMock = {
-                    ai: {
-                        raw: fakeParsed,
-                        normalized: normalizedChecked,
-                        suggestions: normalizedChecked.suggestions.map(s => s.text),
-                        customizations: normalizedChecked.customizations.map(c => c.text),
-                    },
-                    meta: { sentAt: new Date().toISOString(), usedCurriculum: !!relevant }
-                };
-
-                return jsonResponse(resultMock, { status: 200, origin });
-            }
-        }
-
         // Build prompts and few-shot depending on analysisType
         let baseSystemPromptLines = [
             'أنت مساعد خبير في علم نفس وتطوير الطفل وموجه للمعلمات (Arabic).',
@@ -489,7 +382,6 @@ export async function POST(request) {
             '',
             'Return JSON ONLY — no extra text. Keep arrays short and items actionable.'
         ];
-        // If behavior, override with BIP-specific instructions
         let systemPrompt = baseSystemPromptLines.join('\n');
         let exampleUser = [
             'Example note:',
@@ -517,7 +409,6 @@ export async function POST(request) {
         }, null, 2);
 
         if (effectiveAnalysisType === 'behavior') {
-            // Strong behavior-specific instructions and schema
             systemPrompt = [
                 'أنت خبير تحليل سلوكي (BCBA-like) ومصمم خطط تدخل سلوكي (BIP) باللغة العربية.',
                 '**المهمة:** اقرأ الملاحظة والبيانات ثم أعد ناتجًا بصيغة JSON ONLY. يجب أن يُرجع JSON بمخطط BIP واضح وقابل للتطبيق من قبل معلمة أو ولي أمر.',
@@ -547,16 +438,9 @@ export async function POST(request) {
                 '  "parent_instructions": "تعليمات واضحة لولي الأمر"',
                 '}',
                 '',
-                '**مثال على المحتوى المطلوب:**',
-                '- antecedents: ["مطالب أكاديمية صعبة", "ضجيج في الصف"]',
-                '- consequences: ["يحصل على انتباه المعلم", "يُعطى استراحة"]',
-                '- antecedent_strategies: ["تقسيم المهمة لأجزاء أصغر", "تهيئة بيئة هادئة"]',
-                '- replacement_behavior: {"skill": "طلب مساعدة", "modality": "رفع اليد"}',
-                '',
                 'Return JSON ONLY — nothing else.'
             ].join('\n');
 
-            // Example few-shot for behavior
             exampleUser = [
                 'Example note:',
                 'Child: أحمد',
@@ -594,77 +478,146 @@ export async function POST(request) {
             `Note text: ${textNote || ''}`
         ].join('\n');
 
-        const messages = [
-            { role: 'system', content: systemPrompt + (relevant ? ("\n\nRelevant curriculum:\n" + relevant) : '') },
-            { role: 'user', content: exampleUser },
-            { role: 'assistant', content: exampleAssistant },
-            { role: 'user', content: effectiveAnalysisType === 'behavior' 
-                ? `حللي الملاحظة التالية سلوكياً وارجعي JSON مطابق للـ schema أعلاه. تأكد من:\n1. عدم تكرار نص الملاحظة\n2. ملء جميع الحقول بمحتوى مفيد\n3. تقديم حلول عملية قابلة للتطبيق\n\n${noteContent}`
-                : `حللي الملاحظة التالية وارجعي JSON مطابق للـ schema أعلاه (لا تخرجي عن شكل JSON):\n\n${noteContent}`
-            }
-        ];
+        // Use provided messagesForModel if client passed them, else build messages
+        const messages = messagesForModel && Array.isArray(messagesForModel) && messagesForModel.length
+            ? messagesForModel
+            : [
+                { role: 'system', content: systemPrompt + (relevant ? ("\n\nRelevant curriculum:\n" + relevant) : '') },
+                { role: 'user', content: exampleUser },
+                { role: 'assistant', content: exampleAssistant },
+                {
+                    role: 'user', content: effectiveAnalysisType === 'behavior'
+                        ? `حللي الملاحظة التالية سلوكياً وارجعي JSON مطابق للـ schema أعلاه. تأكد من:\n1. عدم تكرار نص الملاحظة\n2. ملء جميع الحقول بمحتوى مفيد\n3. تقديم حلول عملية قابلة للتطبيق\n\n${noteContent}`
+                        : `حللي الملاحظة التالية وارجعي JSON مطابق للـ schema أعلاه (لا تخرجي عن شكل JSON):\n\n${noteContent}`
+                }
+            ];
 
         console.log('--- messages preview ---');
         console.log(messages.map(m => ({ role: m.role, content: (m.content || '').slice(0, 800) })));
 
-        const OPENAI_KEY = process.env.OPENAI_API_KEY;
-        if (!OPENAI_KEY) {
-            return jsonResponse({ error: 'OpenAI api key not configured' }, { status: 500, origin });
+        // -----------------------
+        // NEW: call n8n webhook instead of OpenAI directly
+        // -----------------------
+        const N8N_URL = process.env.N8N_WEBHOOK_URL;
+        if (!N8N_URL) {
+            return jsonResponse({ error: 'N8N_WEBHOOK_URL not configured' }, { status: 500, origin });
         }
 
-        const payload = {
-            model: process.env.OPENAI_MODEL || 'gpt-4',
-            messages,
-            temperature: parseFloat(process.env.AI_TEMPERATURE || '0.0'),
-            max_tokens: parseInt(process.env.AI_MAX_TOKENS || '1800', 10),
+        // Build payload for n8n - include messages so agent can use them
+        const n8nPayload = {
+            textNote,
+            currentActivity,
+            energyLevel,
+            tags,
+            sessionDuration,
+            curriculumQuery,
+            analysisType: effectiveAnalysisType,
+            messagesForModel: messages
         };
 
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${OPENAI_KEY}`
-            },
-            body: JSON.stringify(payload)
-        });
+        // Send to n8n webhook (with abort timeout)
+        const controller = new AbortController();
+        const timeoutMs = parseInt(process.env.N8N_TIMEOUT_MS || '20000', 10);
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-        const data = await res.json();
-
-        if (!res.ok) {
-            console.error('[analyze] OpenAI error:', data);
-            return jsonResponse({ error: data }, { status: 500, origin });
+        let n8nRawText = null;
+        let n8nJson = null;
+        try {
+            const nres = await fetch(N8N_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(n8nPayload),
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            const txt = await nres.text().catch(() => '');
+            n8nRawText = txt;
+            // try parse JSON
+            try { n8nJson = JSON.parse(txt); } catch (e) { n8nJson = txt; }
+        } catch (err) {
+            clearTimeout(timeoutId);
+            console.error('[analyze] n8n webhook call failed:', err.message || err);
+            return jsonResponse({ error: 'Failed to call n8n webhook', detail: String(err.message || err) }, { status: 500, origin });
         }
 
-        const raw = data.choices?.[0]?.message?.content || '';
-        console.log('--- RAW AI RESPONSE (first 4000 chars) ---');
-        console.log(raw.slice(0, 4000));
+        // n8n may return:
+        // - { output: "...." }   OR
+        // - [ { output: "..." } ]  OR
+        // - raw string that is JSON
+        // - already parsed object that is the desired JSON
+        let parsed = null;
+        let rawUsedForDebug = n8nJson;
 
-        let parsed = safeParseJSON(raw);
-        if (!parsed) {
-            const match = raw.match(/\{[\s\S]*\}/);
-            if (match) {
-                try { parsed = JSON.parse(match[0]); } catch (_) { parsed = null; }
+        try {
+            if (Array.isArray(n8nJson)) {
+                // common pattern: [ { output: "..." } ]
+                const first = n8nJson[0] || {};
+                // try fields in order
+                if (first.output) {
+                    const candidate = first.output;
+                    parsed = (typeof candidate === 'object') ? candidate : safeParseJSON(String(candidate)) || (() => {
+                        try { return JSON.parse(String(candidate)); } catch (_) { return null; }
+                    })();
+                } else if (first.body && typeof first.body === 'string') {
+                    parsed = safeParseJSON(first.body) || null;
+                } else if (typeof first === 'object' && Object.keys(first).length && !first.output) {
+                    // maybe the agent already returned parsed object inside first
+                    parsed = first;
+                } else {
+                    // fallback: try parse whole array as string content
+                    parsed = safeParseJSON(JSON.stringify(n8nJson)) || null;
+                }
+            } else if (typeof n8nJson === 'object') {
+                // e.g. { output: "..." }  or already parsed object
+                if (n8nJson.output && typeof n8nJson.output === 'string') {
+                    parsed = safeParseJSON(n8nJson.output) || null;
+                    if (!parsed) {
+                        try { parsed = JSON.parse(n8nJson.output); } catch (_) { parsed = null; }
+                    }
+                } else {
+                    // assume it's already the parsed AI JSON
+                    parsed = n8nJson;
+                }
+            } else if (typeof n8nJson === 'string') {
+                // raw string - try to extract JSON
+                parsed = safeParseJSON(n8nJson) || null;
+            } else {
+                parsed = null;
             }
+        } catch (err) {
+            console.error('[analyze] parsing n8n response failed', err);
+            parsed = null;
+        }
+
+        // If still not parsed, try a last-ditch regex on raw text
+        if (!parsed) {
+            const rawText = typeof n8nRawText === 'string' ? n8nRawText : (typeof n8nJson === 'string' ? n8nJson : JSON.stringify(n8nJson || ''));
+            const attempt = safeParseJSON(rawText);
+            if (attempt) parsed = attempt;
         }
 
         if (!parsed) {
+            // return helpful debug info so you can paste execution output here
+            console.error('[analyze] n8n returned non-parseable JSON. raw:', n8nRawText);
             return jsonResponse({
-                error: 'AI response not valid JSON',
-                hint: 'AI did not return parseable JSON. Check logs (raw) for debugging.',
-                raw,
-                meta: { sentAt: new Date().toISOString(), usedCurriculum: !!relevant }
+                error: 'n8n response not parseable as JSON',
+                hint: 'n8n often returns { output: "...." } or an array. Paste raw execution output here for debugging.',
+                raw: n8nRawText,
+                usedCurriculum: !!relevant
             }, { status: 500, origin });
         }
 
+        // At this point `parsed` should be an object representing the AI JSON
         // Choose correct normalizer based on requested analysisType
         let normalized;
         if (effectiveAnalysisType === 'behavior') {
             normalized = normalizeBehavior(parsed, String(parsed.summary || parsed.behavior_goal || parsed.smart_goal || '').slice(0, 400));
-            // ensure stable objects for suggestions/customizations
             normalized.suggestions = ensureSuggestionObjects(normalized.suggestions || parsed.suggestions || []);
             normalized.customizations = ensureSuggestionObjects(normalized.customizations || parsed.customizations || []);
         } else {
             normalized = normalizeAi(parsed, String(parsed.summary || parsed.smart_goal || '').slice(0, 400));
+            normalized.suggestions = ensureSuggestionObjects(normalized.suggestions || parsed.suggestions || []);
+            normalized.customizations = ensureSuggestionObjects(normalized.customizations || parsed.customizations || []);
         }
 
         // convenience top-level text arrays
@@ -693,4 +646,10 @@ export async function POST(request) {
         console.error('[analyze] fatal error:', err);
         return jsonResponse({ error: err.message }, { status: 500, origin: request.headers.get('origin') || '*' });
     }
+}
+
+// Health check — helpful for dev/debugging
+export async function GET(request) {
+    const origin = request.headers.get('origin') || '*';
+    return jsonResponse({ ok: true, msg: 'analyze endpoint OK', runtime: 'nodejs', analysisHint: 'POST JSON to analyze' }, { status: 200, origin });
 }

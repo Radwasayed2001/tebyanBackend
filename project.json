@@ -1,0 +1,893 @@
+{
+  "name": "مساعد معلمة تبيان",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": {
+          "__rl": true,
+          "value": "1w2vukj4T5i-J_Mto0UBDDreY0oDQVE0r",
+          "mode": "id",
+          "cachedResultName": "TebyanEducation",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1w2vukj4T5i-J_Mto0UBDDreY0oDQVE0r"
+        },
+        "event": "fileCreated",
+        "options": {}
+      },
+      "name": "GoogleDrive Trigger",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [
+        -3072,
+        -320
+      ],
+      "id": "d50836f9-5408-4b84-acc5-2fcdb82cacee",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "nmwtuKZBLn0iLbJ5",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "fileId",
+              "value": "={{$json[\"body\"][\"id\"] || $json[\"body\"][\"fileId\"] || $json[\"fileId\"]}}"
+            },
+            {
+              "name": "fileName",
+              "value": "={{$json[\"body\"][\"name\"] || $json[\"body\"][\"title\"] || $json[\"fileName\"]}}"
+            },
+            {
+              "name": "mimeType",
+              "value": "={{ $json[\"body\"]?.mimeType || $json[\"mimeType\"] || $json[\"body\"]?.file?.mimeType || $json[\"body\"]?.resource?.mimeType || '' }}"
+            },
+            {
+              "name": "triggerEvent",
+              "value": "={{$json[\"body\"][\"changeType\"] || $json[\"event\"] || 'created'}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Set File Info",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        -2848,
+        -320
+      ],
+      "id": "87be9791-798c-4479-931c-5df14748ff09"
+    },
+    {
+      "parameters": {
+        "functionCode": "items[0].json.fileId = items[0].json.fileId || items[0].json.body?.id || items[0].json.body?.fileId;\nitems[0].json.mimeType = items[0].json.mimeType || items[0].json.body?.mimeType || ''; \nreturn items;"
+      },
+      "name": "Normalize Input (Function)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -2624,
+        -320
+      ],
+      "id": "98f3ded0-74a1-46fc-a2dc-2eafd1c5551a"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "download",
+        "fileId": "={{$json[\"fileId\"]}}",
+        "options": {}
+      },
+      "name": "GoogleDrive Get File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 1,
+      "position": [
+        -2384,
+        -416
+      ],
+      "id": "d8e818d0-e511-4c84-aeb1-09df64d97dcb",
+      "retryOnFail": false,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "nmwtuKZBLn0iLbJ5",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// normalize binary to binary.data if not already\nif (!items[0].binary) return items;\nconst keys = Object.keys(items[0].binary || {});\nif (keys.length === 0) return items;\nconst first = keys[0];\nif (first !== 'data') {\n  items[0].binary = items[0].binary || {};\n  items[0].binary.data = items[0].binary[first];\n}\nreturn items;"
+      },
+      "name": "Normalize Binary (Function)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -2128,
+        -352
+      ],
+      "id": "e498700d-ad49-4344-8dab-92178335bc75"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"mimeType\"]}}",
+              "operation": "contains",
+              "value2": "vnd.google-apps.document"
+            }
+          ]
+        }
+      },
+      "name": "Is Google Doc?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -2192,
+        -528
+      ],
+      "id": "12abb9d9-1ec9-48ec-a386-611d08813b65"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "export",
+        "fileId": "={{$json[\"fileId\"]}}",
+        "exportMimeType": "text/plain"
+      },
+      "name": "GoogleDrive Export Text",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 1,
+      "position": [
+        -1968,
+        -384
+      ],
+      "id": "e68be93d-8841-4e1a-8778-c1d038917d33",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "nmwtuKZBLn0iLbJ5",
+          "name": "Google Drive account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "functionCode": "const text = $json[\"data\"] || $json[\"binary\"]?.data?.toString() || $json[\"body\"] || '';\nreturn [{ json: { full_text: String(text) } }];"
+      },
+      "name": "Set Text (GoogleDoc)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -1744,
+        -384
+      ],
+      "id": "e7aa08fe-deeb-41bc-9ea9-2e0a62cc97de"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"mimeType\"]}}",
+              "operation": "contains",
+              "value2": "application/pdf"
+            }
+          ]
+        }
+      },
+      "name": "Is PDF?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -2160,
+        -256
+      ],
+      "id": "b7a1754f-ee5d-4b56-b077-7d14a41212f3"
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://api.pdf.co/v1/pdf/convert/to/text",
+        "responseFormat": "json",
+        "jsonParameters": false,
+        "options": {
+          "bodyContentType": "multipart-form-data"
+        },
+        "sendBinaryData": true,
+        "binaryPropertyName": "data",
+        "headerParametersJson": "{\"x-api-key\":\"{{$credentials[\\\"PDF.co\\\"]?.value || $credentials[\\\"PDF.co\\\"]?.apiKey || ''}}\"}",
+        "queryParametersJson": "{\"inline\": true}"
+      },
+      "name": "PDF -> Text (HTTP Request)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        -1968,
+        -224
+      ],
+      "id": "10af6e32-554d-49a0-a091-cd532a1f2624"
+    },
+    {
+      "parameters": {
+        "functionCode": "const text = $json[\"body\"]?.text || $json[\"body\"]?.result || '';\nreturn [{ json: { full_text: String(text) } }];"
+      },
+      "name": "Set Text (PDF)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -1744,
+        -224
+      ],
+      "id": "f8e4aed1-96a1-472f-8013-92930ccc9a87"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"mimeType\"]}}",
+              "operation": "contains",
+              "value2": "image/"
+            }
+          ]
+        }
+      },
+      "name": "Is Image?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -2096,
+        32
+      ],
+      "id": "957bdf80-2938-4e8e-be7e-eede496d795a"
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://api.ocr.space/parse/image",
+        "responseFormat": "json",
+        "jsonParameters": false,
+        "headerParametersJson": "{\"apikey\":\"{{$credentials[\\\"OCR.space\\\"]?.value || $credentials[\\\"OCR.space\\\"]?.apikey || ''}}\"}",
+        "bodyParametersJson": "{\"base64Image\":\"{{$binary.data.data}}\",\"language\":\"ara\"}"
+      },
+      "name": "OCR -> Text (HTTP Request)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        -1920,
+        16
+      ],
+      "id": "bbc1ed7d-b1e8-49f8-814b-8ee48d2268d9"
+    },
+    {
+      "parameters": {
+        "functionCode": "const text = $json[\"ParsedResults\"]?.[0]?.ParsedText || '';\nreturn [{ json: { full_text: String(text) } }];"
+      },
+      "name": "Set Text (OCR)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -1744,
+        -96
+      ],
+      "id": "4bc9c979-c543-4ff4-b56b-ecdee785fc87"
+    },
+    {
+      "parameters": {
+        "functionCode": "/* Chunker: 1000 chars with 200 overlap */\nconst CHUNK = 1000;\nconst OVER = 200;\nconst txt = items[0].json.full_text || '';\nconst chunks = [];\nfor (let i = 0, idx = 0; i < txt.length; i += (CHUNK - OVER), idx++) {\n  const c = txt.slice(i, i + CHUNK);\n  if (!c || c.trim() === '') continue;\n  chunks.push({ json: { chunk_text: c, chunk_index: idx, file_id: $json.fileId || $json.body?.id || '', file_name: $json.fileName || '', metadata: { source: 'google_drive' } } });\n}\nreturn chunks;"
+      },
+      "name": "Chunk Text (Function)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -1520,
+        -256
+      ],
+      "id": "d6442d26-497c-416e-b8e9-cfd232a2b61b"
+    },
+    {
+      "parameters": {
+        "batchSize": 50,
+        "options": {}
+      },
+      "name": "Split Chunks (Batches)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [
+        -1296,
+        -256
+      ],
+      "id": "74aab3c8-5488-4a6a-b2a9-a4a110c67ac8"
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "input": "={{$json[\"chunk_text\"]}}",
+        "options": {},
+        "requestOptions": {}
+      },
+      "name": "OpenAI - Embeddings",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        -1088,
+        -256
+      ],
+      "id": "3cdb8d8d-8842-4e5b-ad01-77771395a698",
+      "credentials": {
+        "openAiApi": {
+          "id": "uDTHNfpOmaMPAvZG",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "/* prepare body for Supabase insert */\nconst emb = $json.data?.[0]?.embedding || $json.embedding || null;\nconst body = {\n  id: `${$json.file_id}-${$json.chunk_index}`,\n  file_id: $json.file_id,\n  chunk_index: $json.chunk_index,\n  content: $json.chunk_text,\n  metadata: $json.metadata || {},\n  embedding: emb\n};\nreturn [{ json: { supabaseBody: body } }];"
+      },
+      "name": "Prepare Supabase Row",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -864,
+        -256
+      ],
+      "id": "bee394f1-7172-4928-a9b8-ef4578aabec4"
+    },
+    {
+      "parameters": {
+        "url": "={{\"https://xmrqynkirpuyqdfavurm.supabase.co/rest/v1/documents\"}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "={{ JSON.stringify($json.supabaseBody) }}",
+        "headerParametersJson": "{\"apikey\":\"{{$credentials[\\\"Supabase Service Role\\\"]?.value || $credentials[\\\"Supabase Service Role\\\"]?.service_role || ''}}\",\"Authorization\":\"Bearer {{$credentials[\\\"Supabase Service Role\\\"]?.value || $credentials[\\\"Supabase Service Role\\\"]?.service_role || ''}}\",\"Content-Type\":\"application/json\"}"
+      },
+      "name": "Supabase Insert Row (HTTP Request)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        -640,
+        -256
+      ],
+      "id": "7d176d1e-b2aa-4890-b71a-b7b3bddbc577"
+    },
+    {
+      "parameters": {},
+      "name": "SplitChBatches End (NoOp)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -416,
+        -256
+      ],
+      "id": "74084440-f4be-4106-8595-a5c6f1c3065b"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"triggerEvent\"]}}",
+              "value2": "updated"
+            }
+          ]
+        }
+      },
+      "name": "Was Updated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -2608,
+        16
+      ],
+      "id": "c0ca1f95-1b46-498a-8500-3acdfd9ee2d6"
+    },
+    {
+      "parameters": {
+        "url": "={{\"https://xmrqynkirpuyqdfavurm.supabase.co/rest/v1/documents?file_id=eq.\" + $json.fileId}}",
+        "options": {},
+        "headerParametersJson": "{\"apikey\":\"{{$credentials[\\\"Supabase Service Role\\\"]?.value || $credentials[\\\"Supabase Service Role\\\"]?.service_role || ''}}\",\"Authorization\":\"Bearer {{$credentials[\\\"Supabase Service Role\\\"]?.value || $credentials[\\\"Supabase Service Role\\\"]?.service_role || ''}}\"}"
+      },
+      "name": "Supabase Delete Old (HTTP Request)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        -2384,
+        -128
+      ],
+      "id": "5adf1391-c651-46e2-a878-c7a0d76972e8"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rag-chat",
+        "options": {}
+      },
+      "name": "Webhook - Chat",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -3072,
+        80
+      ],
+      "id": "bc47e473-98ec-457d-af1a-2a68e2d83ae5",
+      "webhookId": "30d2efa0-6038-47ab-a652-85508d86b354"
+    },
+    {
+      "parameters": {
+        "functionCode": "/* compute embedding for query */\nreturn [{ json: { query: $json.body.query || $json.query || '؟' } }];"
+      },
+      "name": "Get Query",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -2848,
+        80
+      ],
+      "id": "2c73e91f-bd9f-498f-ac0f-a3126cdfeb93"
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "input": "={{$json.query}}",
+        "options": {},
+        "requestOptions": {}
+      },
+      "name": "OpenAI - Embeddings (Query)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        -2656,
+        192
+      ],
+      "id": "ccc62a95-1ec2-439b-9cbe-4dafbaa7f5fa",
+      "credentials": {
+        "openAiApi": {
+          "id": "uDTHNfpOmaMPAvZG",
+          "name": "OpenAi account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{\"https://xmrqynkirpuyqdfavurm.supabase.co/rpc/vector_search\"}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\"query_embedding\": {{$json.data[0].embedding}}, \"match_count\": 6}",
+        "options": {},
+        "headerParametersJson": "{\"apikey\":\"{{$credentials[\\\"Supabase Service Role\\\"]?.value || $credentials[\\\"Supabase Service Role\\\"]?.service_role || ''}}\",\"Authorization\":\"Bearer {{$credentials[\\\"Supabase Service Role\\\"]?.value || $credentials[\\\"Supabase Service Role\\\"]?.service_role || ''}}\",\"Content-Type\":\"application/json\"}"
+      },
+      "name": "Supabase Vector Search (RPC)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        -2416,
+        176
+      ],
+      "id": "4c3af797-a5cb-451b-92eb-bc93acbef34e"
+    },
+    {
+      "parameters": {
+        "functionCode": "/* Build context from top results */\nconst rows = $json.results || $json.body || [];\nconst ctx = rows.map((r,i)=> `Source ${i+1} (file:${r.file_id || r.fileId} chunk:${r.chunk_index || r.chunkIndex}):\\n${r.content || r.text || JSON.stringify(r).slice(0,200)}`).join('\\n\\n---\\n\\n');\nreturn [{ json: { context: ctx, rows } }];"
+      },
+      "name": "Build Context (Function)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -2192,
+        176
+      ],
+      "id": "0e9cb772-5890-4849-a77b-c89304b705a8"
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "temperature": 0.2,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a helpful Arabic assistant answering questions using the provided context. Use concise actionable language and cite sources by file id."
+          },
+          {
+            "role": "user",
+            "content": "Context:\n{{$json.context}}\n\nQuestion:\n{{$json.body?.query || $json.query}}"
+          }
+        ]
+      },
+      "name": "OpenAI Chat - Answer",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        -1968,
+        176
+      ],
+      "id": "fa46fe09-0548-4993-b6e4-23ed11a3d3ee",
+      "credentials": {
+        "openAiApi": {
+          "id": "uDTHNfpOmaMPAvZG",
+          "name": "OpenAi account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {},
+      "name": "Return Response",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -1744,
+        80
+      ],
+      "id": "b0432ffc-07aa-45e0-bb0d-66476aa93536"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "GoogleDrive Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set File Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set File Info": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input (Function)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input (Function)": {
+      "main": [
+        [
+          {
+            "node": "Was Updated?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "GoogleDrive Get File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GoogleDrive Get File": {
+      "main": [
+        [
+          {
+            "node": "Normalize Binary (Function)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Binary (Function)": {
+      "main": [
+        [
+          {
+            "node": "Is Google Doc?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is PDF?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is Image?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Google Doc?": {
+      "main": [
+        [
+          {
+            "node": "GoogleDrive Export Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is PDF?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GoogleDrive Export Text": {
+      "main": [
+        [
+          {
+            "node": "Set Text (GoogleDoc)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Text (GoogleDoc)": {
+      "main": [
+        [
+          {
+            "node": "Chunk Text (Function)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is PDF?": {
+      "main": [
+        [
+          {
+            "node": "PDF -> Text (HTTP Request)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Image?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF -> Text (HTTP Request)": {
+      "main": [
+        [
+          {
+            "node": "Set Text (PDF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Text (PDF)": {
+      "main": [
+        [
+          {
+            "node": "Chunk Text (Function)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Image?": {
+      "main": [
+        [
+          {
+            "node": "OCR -> Text (HTTP Request)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chunk Text (Function)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR -> Text (HTTP Request)": {
+      "main": [
+        [
+          {
+            "node": "Set Text (OCR)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Text (OCR)": {
+      "main": [
+        [
+          {
+            "node": "Chunk Text (Function)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunk Text (Function)": {
+      "main": [
+        [
+          {
+            "node": "Split Chunks (Batches)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Chunks (Batches)": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Embeddings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Embeddings": {
+      "main": [
+        [
+          {
+            "node": "Prepare Supabase Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Supabase Row": {
+      "main": [
+        [
+          {
+            "node": "Supabase Insert Row (HTTP Request)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Insert Row (HTTP Request)": {
+      "main": [
+        [
+          {
+            "node": "SplitChBatches End (NoOp)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was Updated?": {
+      "main": [
+        [
+          {
+            "node": "Supabase Delete Old (HTTP Request)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GoogleDrive Get File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Delete Old (HTTP Request)": {
+      "main": [
+        [
+          {
+            "node": "GoogleDrive Get File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Chat": {
+      "main": [
+        [
+          {
+            "node": "Get Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Query": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Embeddings (Query)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Embeddings (Query)": {
+      "main": [
+        [
+          {
+            "node": "Supabase Vector Search (RPC)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Vector Search (RPC)": {
+      "main": [
+        [
+          {
+            "node": "Build Context (Function)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Context (Function)": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Chat - Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat - Answer": {
+      "main": [
+        [
+          {
+            "node": "Return Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "60835e1b-0837-4f86-b757-fa7606bfddb7",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "26a3f415fbd24f9fb943910fd2e61374c2a973e66a9db54678e95a43b2002389"
+  },
+  "id": "rAPyJx9AzFLNifBv",
+  "tags": []
+}
