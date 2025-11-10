@@ -517,7 +517,7 @@ export async function POST(request) {
 
         // Send to n8n webhook (with abort timeout)
         const controller = new AbortController();
-        const timeoutMs = parseInt(process.env.N8N_TIMEOUT_MS || '20000', 10);
+        const timeoutMs = parseInt(process.env.N8N_TIMEOUT_MS || '60000', 10);
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
         let n8nRawText = null;
