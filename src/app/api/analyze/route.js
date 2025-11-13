@@ -310,6 +310,59 @@ function normalizeBehavior(parsed, fallbackNote = '') {
     return canonical;
 }
 
+// <<< ADDED helper: create a short assessment summary string for messages
+function buildAssessmentSummaryForModel(assessmentDocOrData) {
+    if (!assessmentDocOrData) return '';
+    try {
+        // Accept either { id, data } or raw data object
+        const data = assessmentDocOrData.data ? assessmentDocOrData.data : assessmentDocOrData;
+        const basic = data?.assessmentData?.basicInfo || data?.basicInfo || data?.assessmentData?.basic || data?.basic || {};
+        const name = basic.childName || basic.name || basic.child || '(اسم غير متوفر)';
+        const age = basic.age || basic.birthDate || basic.ageYears || '';
+        const diagnosis = (data?.assessmentData?.diagnosis || data?.diagnoses || basic.diagnosis || '') || '';
+        const autismSeverity = data?.assessmentData?.autismSeverity || data?.autismSeverity || '';
+        const sensory = data?.assessmentData?.sensoryProfile || data?.sensoryProfile || data?.sensory || null;
+        const reinforcers = data?.assessmentData?.reinforcers || data?.reinforcers || null;
+        const family = data?.assessmentData?.family || data?.family || null;
+        const notes = data?.assessmentData?.notes || data?.notes || '';
+
+        const parts = [
+            `Assessment summary for: ${name}${age ? `, age: ${age}` : ''}${diagnosis ? `, diagnosis: ${diagnosis}` : ''}${autismSeverity ? `, severity: ${autismSeverity}` : ''}`,
+        ];
+
+        if (sensory) {
+            const sensoryStr = (typeof sensory === 'string') ? sensory : JSON.stringify(sensory);
+            parts.push(`Sensory profile (truncated): ${sensoryStr.slice(0, 600)}`);
+        }
+        if (reinforcers) {
+            const r = (typeof reinforcers === 'string') ? reinforcers : JSON.stringify(reinforcers);
+            parts.push(`Preferred reinforcers (truncated): ${r.slice(0, 400)}`);
+        }
+        if (family) {
+            const f = (typeof family === 'string') ? family : JSON.stringify(family);
+            parts.push(`Family notes (truncated): ${f.slice(0, 400)}`);
+        }
+        if (notes) {
+            parts.push(`Clinician notes (truncated): ${String(notes).slice(0, 800)}`);
+        }
+
+        // join and ensure reasonable length
+        const joined = parts.join('\n').slice(0, 3000);
+        return joined;
+    } catch (e) {
+        return '';
+    }
+}
+
+// safe short stringify for debugging
+function shortStringify(obj, max = 1000) {
+    try {
+        const s = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+        return s.length > max ? s.slice(0, max) + '... (truncated)' : s;
+    } catch (e) {
+        return String(obj).slice(0, max);
+    }
+}
 
 export async function POST(request) {
     const origin = request.headers.get('origin') || '*';
@@ -331,15 +384,15 @@ export async function POST(request) {
             audioUrl,
             analysisType = 'general', // NEW: frontend can send analysisType: 'behavior'
             planType, // Alternative parameter name for plan type
-            messagesForModel // optional override from client
+            messagesForModel, // optional override from client
+            // <<< ADDED: accept assessment data from client
+            assessmentDoc,
+            assessmentData,
+            assessmentReport
         } = body || {};
 
         // Support both analysisType and planType parameters
         const effectiveAnalysisType = planType === 'behavioral' ? 'behavior' : analysisType;
-
-        if (!textNote && !audioUrl) {
-            return jsonResponse({ error: 'لا يوجد نص أو رابط صوتي للتحليل' }, { status: 400, origin });
-        }
 
         // load curriculum data if exists
         const dataPath = path.join(process.cwd(), 'data', 'curriculum.json');
@@ -478,10 +531,30 @@ export async function POST(request) {
             `Note text: ${textNote || ''}`
         ].join('\n');
 
+        // <<< ADDED: build assessment summary and attach to messages & n8n payload
+        const assessmentObj = assessmentDoc || assessmentData || null;
+        const assessmentSummary = buildAssessmentSummaryForModel(assessmentObj);
+        if (assessmentSummary) {
+            console.log('--- assessment summary (truncated) ---');
+            console.log(assessmentSummary.slice(0, 1000));
+        } else {
+            console.log('--- no assessment included in request ---');
+        }
+
         // Use provided messagesForModel if client passed them, else build messages
-        const messages = messagesForModel && Array.isArray(messagesForModel) && messagesForModel.length
-            ? messagesForModel
-            : [
+        let messages = null;
+        if (messagesForModel && Array.isArray(messagesForModel) && messagesForModel.length) {
+            // <<< UPDATED: if client provided messages we append an extra user message with assessment summary
+            messages = [...messagesForModel];
+            if (assessmentSummary) {
+                messages.push({
+                    role: 'user',
+                    content: `ملاحظة مهمة: توجد بيانات تقييم/استبيان مرفقة — استخدمها كمصدر للسياق عند صياغة الخطة. Assessment summary (truncated):\n\n${assessmentSummary}`
+                });
+            }
+        } else {
+            // build default few-shot messages and include assessment summary inside system or user segment
+            messages = [
                 { role: 'system', content: systemPrompt + (relevant ? ("\n\nRelevant curriculum:\n" + relevant) : '') },
                 { role: 'user', content: exampleUser },
                 { role: 'assistant', content: exampleAssistant },
@@ -491,6 +564,14 @@ export async function POST(request) {
                         : `حللي الملاحظة التالية وارجعي JSON مطابق للـ schema أعلاه (لا تخرجي عن شكل JSON):\n\n${noteContent}`
                 }
             ];
+            if (assessmentSummary) {
+                // put assessment summary as an additional user message (explicit instruction to use it)
+                messages.push({
+                    role: 'user',
+                    content: `مرفق: ملخص التقييم الطبي/التربوي للطفل — استخدم المعلومات أدناه لتخصيص الخطة (اختصر وادمج الحقول المهمة فقط):\n\n${assessmentSummary}`
+                });
+            }
+        }
 
         console.log('--- messages preview ---');
         console.log(messages.map(m => ({ role: m.role, content: (m.content || '').slice(0, 800) })));
@@ -503,7 +584,7 @@ export async function POST(request) {
             return jsonResponse({ error: 'N8N_WEBHOOK_URL not configured' }, { status: 500, origin });
         }
 
-        // Build payload for n8n - include messages so agent can use them
+        // Build payload for n8n - include assessment fields so n8n has full context
         const n8nPayload = {
             textNote,
             currentActivity,
@@ -512,12 +593,23 @@ export async function POST(request) {
             sessionDuration,
             curriculumQuery,
             analysisType: effectiveAnalysisType,
-            messagesForModel: messages
+            messagesForModel: messages,
+            // <<< ADDED: include assessment raw objects for n8n usage
+            assessment: {
+                provided: !!assessmentObj,
+                summary: assessmentSummary,
+                doc: assessmentDoc || null,
+                data: assessmentData || null,
+                report: assessmentReport || null
+            },
+            meta: {
+                sentAt: new Date().toISOString()
+            }
         };
 
         // Send to n8n webhook (with abort timeout)
         const controller = new AbortController();
-        const timeoutMs = parseInt(process.env.N8N_TIMEOUT_MS || '20000', 10);
+        const timeoutMs = parseInt(process.env.N8N_TIMEOUT_MS || '120000', 10);
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
         let n8nRawText = null;
@@ -603,7 +695,9 @@ export async function POST(request) {
                 error: 'n8n response not parseable as JSON',
                 hint: 'n8n often returns { output: "...." } or an array. Paste raw execution output here for debugging.',
                 raw: n8nRawText,
-                usedCurriculum: !!relevant
+                usedCurriculum: !!relevant,
+                sentAssessment: !!assessmentObj,
+                assessmentSummary: assessmentSummary ? assessmentSummary.slice(0, 800) : ''
             }, { status: 500, origin });
         }
 
@@ -638,7 +732,7 @@ export async function POST(request) {
                 suggestions: suggestionsText,
                 customizations: customizationsText
             },
-            meta: { sentAt: new Date().toISOString(), usedCurriculum: !!relevant, analysisType: effectiveAnalysisType }
+            meta: { sentAt: new Date().toISOString(), usedCurriculum: !!relevant, analysisType: effectiveAnalysisType, sentAssessment: !!assessmentObj }
         };
 
         return jsonResponse(result, { status: 200, origin });
