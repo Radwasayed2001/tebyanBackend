@@ -364,6 +364,24 @@ function shortStringify(obj, max = 1000) {
     }
 }
 
+// helper to safely create a short excerpt of any report object (stringify + trim)
+function buildReportExcerpt(reportObj, maxChars = 3000) {
+    if (!reportObj) return '';
+    try {
+        if (typeof reportObj === 'string') {
+            return reportObj.slice(0, maxChars);
+        }
+        const j = JSON.stringify(reportObj, null, 2);
+        return j.slice(0, maxChars);
+    } catch (e) {
+        try {
+            return String(reportObj).slice(0, maxChars);
+        } catch {
+            return '';
+        }
+    }
+}
+
 export async function POST(request) {
     const origin = request.headers.get('origin') || '*';
 
@@ -375,6 +393,7 @@ export async function POST(request) {
         });
 
         const {
+            // existing fields
             textNote,
             currentActivity,
             energyLevel,
@@ -385,10 +404,20 @@ export async function POST(request) {
             analysisType = 'general', // NEW: frontend can send analysisType: 'behavior'
             planType, // Alternative parameter name for plan type
             messagesForModel, // optional override from client
-            // <<< ADDED: accept assessment data from client
+
+            // <<< ADDED: accept assessment data from client (BehaviorPlan/EducationalPlan will send these)
             assessmentDoc,
             assessmentData,
-            assessmentReport
+            assessmentReport,
+
+            // <<< ADDED: accept childName and planRequestMeta for better context (EducationalPlan used these)
+            childName,
+            planRequestMeta,
+
+            // <<< ADDED: accept family report payloads from FamilyReport.jsx
+            familyReport,
+            reportData,
+            generatedReport
         } = body || {};
 
         // Support both analysisType and planType parameters
@@ -405,7 +434,7 @@ export async function POST(request) {
             console.warn('[analyze] failed to read curriculum.json or file missing:', e.message);
         }
 
-        const query = (curriculumQuery || textNote || '').toLowerCase().trim();
+        const query = (curriculumQuery || textNote || childName || '').toLowerCase().trim();
         const matched = query
             ? curriculum.filter(c => (c.title + ' ' + c.content).toLowerCase().includes(query))
             : [];
@@ -417,7 +446,23 @@ export async function POST(request) {
             .slice(0, 3000);
 
         console.log('--- analyze request body ---');
-        console.log({ textNote: textNote?.slice(0, 200), currentActivity, energyLevel, tags, sessionDuration, curriculumQuery, audioUrl, analysisType, planType, effectiveAnalysisType });
+        console.log({
+            childName,
+            textNote: textNote?.slice(0, 200),
+            currentActivity,
+            energyLevel,
+            tags,
+            sessionDuration,
+            curriculumQuery,
+            audioUrl,
+            analysisType,
+            planType,
+            effectiveAnalysisType,
+            hasAssessmentDoc: !!assessmentDoc,
+            hasAssessmentData: !!assessmentData,
+            hasAssessmentReport: !!assessmentReport,
+            hasFamilyReport: !!familyReport || !!reportData || !!generatedReport
+        });
         console.log('--- relevant (truncated) ---');
         console.log(relevant ? relevant.slice(0, 1000) : '(no relevant curriculum)');
 
@@ -436,6 +481,7 @@ export async function POST(request) {
             'Return JSON ONLY — no extra text. Keep arrays short and items actionable.'
         ];
         let systemPrompt = baseSystemPromptLines.join('\n');
+
         let exampleUser = [
             'Example note:',
             'Child: هاجر',
@@ -444,6 +490,7 @@ export async function POST(request) {
             'Goal: طلب الشيء (باستخدام جملة قصيرة)',
             'Observation: الطفل يستخدم كلمات منفردة فقط، يحتاج دعم للتواصل التلقائي.'
         ].join('\n');
+
         let exampleAssistant = JSON.stringify({
             smart_goal: "خلال شهر، سيقوم الطفل هاجر بطلب الشيء باستخدام جملة قصيرة مكوّنة من كلمتين مـعتمدة في 80% من المحاولات.",
             teaching_strategy: "التلقين البصري واللفظي مع التحفيز الاجتماعي",
@@ -475,20 +522,9 @@ export async function POST(request) {
                 '',
                 '**Output MUST be valid JSON** and must contain these keys:',
                 '{',
-                '  "behavior_goal": "هدف سلوكي محدد وقابل للقياس",',
-                '  "summary": "ملخص مختصر للسلوك والوظيفة",',
-                '  "antecedents": ["قائمة المثيرات التي تسبق السلوك"],',
-                '  "consequences": ["قائمة العواقب التي تلي السلوك"],',
-                '  "function_analysis": "تحليل وظيفة السلوك (انتباه/هروب/حصول على شيء/حسي)",',
-                '  "antecedent_strategies": ["استراتيجيات منع السلوك قبل حدوثه"],',
-                '  "replacement_behavior": {"skill": "المهارة البديلة", "modality": "طريقة التطبيق"},',
-                '  "consequence_strategies": ["استراتيجيات الاستجابة للسلوك"],',
-                '  "data_collection": {"metric": "طريقة القياس", "tool": "أداة التسجيل"},',
-                '  "review_after_days": 14,',
-                '  "safety_flag": false,',
-                '  "suggestions": ["اقتراحات إضافية للتحسين"],',
-                '  "customizations": ["تعديلات مخصصة للطفل"],',
-                '  "parent_instructions": "تعليمات واضحة لولي الأمر"',
+                '  "behavior_goal", "summary", "antecedents", "consequences", "function_analysis",',
+                '  "antecedent_strategies", "replacement_behavior", "consequence_strategies",',
+                '  "data_collection", "review_after_days", "safety_flag", "suggestions", "customizations", "parent_instructions"',
                 '}',
                 '',
                 'Return JSON ONLY — nothing else.'
@@ -523,33 +559,61 @@ export async function POST(request) {
             }, null, 2);
         }
 
+
         const noteContent = [
             `Child activity: ${currentActivity || 'غير محدد'}`,
+            `Child name: ${childName || 'غير محدد'}`,
             `Energy level: ${energyLevel || ''}`,
             `Tags: ${tags.join(', ') || 'لا يوجد'}`,
             `Session duration: ${sessionDuration} دقيقة`,
             `Note text: ${textNote || ''}`
         ].join('\n');
 
-        // <<< ADDED: build assessment summary and attach to messages & n8n payload
+        // <<< ADDED: build assessment summary and report excerpt and attach to messages & n8n payload
         const assessmentObj = assessmentDoc || assessmentData || null;
         const assessmentSummary = buildAssessmentSummaryForModel(assessmentObj);
+        const assessmentReportExcerpt = buildReportExcerpt(assessmentReport || (assessmentObj && assessmentObj.data && assessmentObj.data.report) || null, 3000);
+
+        // <<< ADDED: build familyReport excerpt if provided
+        const familyReportObj = familyReport || reportData || generatedReport || null;
+        const familyReportExcerpt = buildReportExcerpt(familyReportObj, 3000);
+
         if (assessmentSummary) {
             console.log('--- assessment summary (truncated) ---');
             console.log(assessmentSummary.slice(0, 1000));
         } else {
             console.log('--- no assessment included in request ---');
         }
+        if (assessmentReportExcerpt) {
+            console.log('--- assessment report excerpt (truncated) ---');
+            console.log(assessmentReportExcerpt.slice(0, 1200));
+        }
+        if (familyReportExcerpt) {
+            console.log('--- family report excerpt (truncated) ---');
+            console.log(familyReportExcerpt.slice(0, 1200));
+        }
 
         // Use provided messagesForModel if client passed them, else build messages
         let messages = null;
         if (messagesForModel && Array.isArray(messagesForModel) && messagesForModel.length) {
-            // <<< UPDATED: if client provided messages we append an extra user message with assessment summary
+            // <<< UPDATED: if client provided messages we append an extra user message with assessment summary/report excerpt
             messages = [...messagesForModel];
             if (assessmentSummary) {
                 messages.push({
                     role: 'user',
                     content: `ملاحظة مهمة: توجد بيانات تقييم/استبيان مرفقة — استخدمها كمصدر للسياق عند صياغة الخطة. Assessment summary (truncated):\n\n${assessmentSummary}`
+                });
+            }
+            if (assessmentReportExcerpt) {
+                messages.push({
+                    role: 'user',
+                    content: `مرفق مقتطف من التقرير الكامل (report excerpt). الرجاء الاستفادة منه عند التحليل (مقتطف):\n\n${assessmentReportExcerpt}`
+                });
+            }
+            if (familyReportExcerpt) {
+                messages.push({
+                    role: 'user',
+                    content: `مرفق مقتطف من تقرير الأسرة/معاينة التقرير — الرجاء الاستفادة منه لتخصيص المخرجات:\n\n${familyReportExcerpt}`
                 });
             }
         } else {
@@ -571,6 +635,23 @@ export async function POST(request) {
                     content: `مرفق: ملخص التقييم الطبي/التربوي للطفل — استخدم المعلومات أدناه لتخصيص الخطة (اختصر وادمج الحقول المهمة فقط):\n\n${assessmentSummary}`
                 });
             }
+            if (assessmentReportExcerpt) {
+                messages.push({
+                    role: 'user',
+                    content: `مرفق مقتطف من التقرير الكامل — الرجاء الاستفادة منه عند تحليل السلوك (اختصار):\n\n${assessmentReportExcerpt}`
+                });
+            }
+            if (familyReportExcerpt) {
+                messages.push({
+                    role: 'user',
+                    content: `مرفق مقتطف من تقرير الأسرة/معاينة التقرير — الرجاء دمجه/الاستفادة منه لتخصيص المخرجات:\n\n${familyReportExcerpt}`
+                });
+            }
+            if (planRequestMeta && typeof planRequestMeta === 'object') {
+                // give the model some meta context if provided
+                const metaShort = JSON.stringify(planRequestMeta).slice(0, 1200);
+                messages.push({ role: 'user', content: `ملاحظة: سياق الطلب (meta):\n\n${metaShort}` });
+            }
         }
 
         console.log('--- messages preview ---');
@@ -586,6 +667,7 @@ export async function POST(request) {
 
         // Build payload for n8n - include assessment fields so n8n has full context
         const n8nPayload = {
+            childName: childName || null,
             textNote,
             currentActivity,
             energyLevel,
@@ -594,13 +676,22 @@ export async function POST(request) {
             curriculumQuery,
             analysisType: effectiveAnalysisType,
             messagesForModel: messages,
-            // <<< ADDED: include assessment raw objects for n8n usage
+            planRequestMeta: planRequestMeta || null,
+            // <<< ADDED: include assessment raw objects for n8n usage (but safe excerpt for large report)
             assessment: {
                 provided: !!assessmentObj,
                 summary: assessmentSummary,
                 doc: assessmentDoc || null,
                 data: assessmentData || null,
-                report: assessmentReport || null
+                report: assessmentReport ? (typeof assessmentReport === 'string' ? assessmentReport.slice(0, 8000) : buildReportExcerpt(assessmentReport, 8000)) : (assessmentObj && assessmentObj.data && assessmentObj.data.report ? buildReportExcerpt(assessmentObj.data.report, 8000) : null),
+                reportExcerpt: assessmentReportExcerpt || null
+            },
+            // <<< ADDED: include family report info (if frontend sent it)
+            familyReport: {
+                provided: !!familyReportObj,
+                doc: familyReport || null,
+                data: reportData || generatedReport || null,
+                excerpt: familyReportExcerpt || null
             },
             meta: {
                 sentAt: new Date().toISOString()
@@ -632,47 +723,81 @@ export async function POST(request) {
             return jsonResponse({ error: 'Failed to call n8n webhook', detail: String(err.message || err) }, { status: 500, origin });
         }
 
-        // n8n may return:
-        // - { output: "...." }   OR
-        // - [ { output: "..." } ]  OR
-        // - raw string that is JSON
-        // - already parsed object that is the desired JSON
+        // -----------------------
+        // Robust n8n parsing helper
+        // -----------------------
+        function tryParseCandidate(candidate) {
+            if (candidate === undefined || candidate === null) return null;
+            // If it's already an object, return it
+            if (typeof candidate === 'object') return candidate;
+
+            if (typeof candidate === 'string') {
+                const trimmed = candidate.trim();
+
+                // 1) direct JSON.parse
+                try {
+                    return JSON.parse(trimmed);
+                } catch (e) { /* continue */ }
+
+                // 2) safeParseJSON (extract first {...} inside text)
+                try {
+                    const sp = safeParseJSON(trimmed);
+                    if (sp) return sp;
+                } catch (e) { /* continue */ }
+
+                // 3) unescape common escapes then parse
+                try {
+                    const unescaped = trimmed.replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                    try {
+                        return JSON.parse(unescaped);
+                    } catch (_) { /* continue */ }
+                } catch (e) { /* continue */ }
+
+                // 4) extract the first {...} block and parse it
+                try {
+                    const m = trimmed.match(/\{[\s\S]*\}/);
+                    if (m && m[0]) {
+                        try {
+                            return JSON.parse(m[0]);
+                        } catch (_) {
+                            const sp2 = safeParseJSON(m[0]);
+                            if (sp2) return sp2;
+                        }
+                    }
+                } catch (e) { /* continue */ }
+            }
+
+            return null;
+        }
+
         let parsed = null;
         let rawUsedForDebug = n8nJson;
 
         try {
             if (Array.isArray(n8nJson)) {
-                // common pattern: [ { output: "..." } ]
                 const first = n8nJson[0] || {};
-                // try fields in order
-                if (first.output) {
-                    const candidate = first.output;
-                    parsed = (typeof candidate === 'object') ? candidate : safeParseJSON(String(candidate)) || (() => {
-                        try { return JSON.parse(String(candidate)); } catch (_) { return null; }
-                    })();
-                } else if (first.body && typeof first.body === 'string') {
-                    parsed = safeParseJSON(first.body) || null;
-                } else if (typeof first === 'object' && Object.keys(first).length && !first.output) {
-                    // maybe the agent already returned parsed object inside first
-                    parsed = first;
-                } else {
-                    // fallback: try parse whole array as string content
-                    parsed = safeParseJSON(JSON.stringify(n8nJson)) || null;
-                }
-            } else if (typeof n8nJson === 'object') {
-                // e.g. { output: "..." }  or already parsed object
-                if (n8nJson.output && typeof n8nJson.output === 'string') {
-                    parsed = safeParseJSON(n8nJson.output) || null;
-                    if (!parsed) {
-                        try { parsed = JSON.parse(n8nJson.output); } catch (_) { parsed = null; }
+                // common candidate field names
+                const commonFields = ['output', 'body', 'data', 'json', 'result', 'response'];
+                for (const f of commonFields) {
+                    if (first[f] !== undefined && first[f] !== null) {
+                        parsed = tryParseCandidate(first[f]);
+                        if (parsed) break;
                     }
+                }
+                // If still not parsed, maybe first itself is the parsed object
+                if (!parsed && typeof first === 'object' && Object.keys(first).length && !first.output) {
+                    parsed = first;
+                }
+                // final fallback: parse the entire array string
+                if (!parsed) parsed = tryParseCandidate(JSON.stringify(n8nJson));
+            } else if (typeof n8nJson === 'object') {
+                if (n8nJson.output !== undefined) {
+                    parsed = tryParseCandidate(n8nJson.output) || tryParseCandidate(n8nJson.body) || tryParseCandidate(n8nJson);
                 } else {
-                    // assume it's already the parsed AI JSON
                     parsed = n8nJson;
                 }
             } else if (typeof n8nJson === 'string') {
-                // raw string - try to extract JSON
-                parsed = safeParseJSON(n8nJson) || null;
+                parsed = tryParseCandidate(n8nJson);
             } else {
                 parsed = null;
             }
@@ -681,23 +806,28 @@ export async function POST(request) {
             parsed = null;
         }
 
-        // If still not parsed, try a last-ditch regex on raw text
+        // last-ditch attempt using raw text
         if (!parsed) {
             const rawText = typeof n8nRawText === 'string' ? n8nRawText : (typeof n8nJson === 'string' ? n8nJson : JSON.stringify(n8nJson || ''));
             const attempt = safeParseJSON(rawText);
             if (attempt) parsed = attempt;
         }
 
+        // keep rawUsedForDebug
+        rawUsedForDebug = parsed ? parsed : n8nRawText;
+
         if (!parsed) {
-            // return helpful debug info so you can paste execution output here
-            console.error('[analyze] n8n returned non-parseable JSON. raw:', n8nRawText);
+            console.error('[analyze] n8n returned non-parseable JSON. raw:', shortStringify(n8nRawText, 2000));
             return jsonResponse({
                 error: 'n8n response not parseable as JSON',
                 hint: 'n8n often returns { output: "...." } or an array. Paste raw execution output here for debugging.',
                 raw: n8nRawText,
                 usedCurriculum: !!relevant,
                 sentAssessment: !!assessmentObj,
-                assessmentSummary: assessmentSummary ? assessmentSummary.slice(0, 800) : ''
+                assessmentSummary: assessmentSummary ? assessmentSummary.slice(0, 800) : '',
+                assessmentReportExcerpt: assessmentReportExcerpt ? assessmentReportExcerpt.slice(0, 800) : '',
+                sentFamilyReport: !!familyReportObj,
+                familyReportExcerpt: familyReportExcerpt ? familyReportExcerpt.slice(0, 800) : ''
             }, { status: 500, origin });
         }
 
@@ -732,7 +862,16 @@ export async function POST(request) {
                 suggestions: suggestionsText,
                 customizations: customizationsText
             },
-            meta: { sentAt: new Date().toISOString(), usedCurriculum: !!relevant, analysisType: effectiveAnalysisType, sentAssessment: !!assessmentObj }
+            meta: {
+                sentAt: new Date().toISOString(),
+                usedCurriculum: !!relevant,
+                analysisType: effectiveAnalysisType,
+                sentAssessment: !!assessmentObj,
+                assessmentReportExcerpt: assessmentReportExcerpt ? (assessmentReportExcerpt.slice(0, 1200)) : null,
+                sentFamilyReport: !!familyReportObj,
+                familyReportExcerpt: familyReportExcerpt ? familyReportExcerpt.slice(0, 1200) : null,
+                childName: childName || null
+            }
         };
 
         return jsonResponse(result, { status: 200, origin });
