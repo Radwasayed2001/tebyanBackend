@@ -417,7 +417,10 @@ export async function POST(request) {
             // <<< ADDED: accept family report payloads from FamilyReport.jsx
             familyReport,
             reportData,
-            generatedReport
+            generatedReport,
+
+            // <<< NEW: curriculum selection from frontend (domain, detailGoal, selectedIndicators)
+            curriculumSelection
         } = body || {};
 
         // Support both analysisType and planType parameters
@@ -445,6 +448,21 @@ export async function POST(request) {
             .join('\n\n---\n\n')
             .slice(0, 3000);
 
+        // Build a readable curriculumSelection summary (safe/truncated) to include in messages
+        let curriculumSelectionSummary = '';
+        try {
+            if (curriculumSelection && typeof curriculumSelection === 'object') {
+                const domainPart = curriculumSelection.domain ? `المجال: ${typeof curriculumSelection.domain === 'object' ? (curriculumSelection.domain.title || curriculumSelection.domain.id || '') : String(curriculumSelection.domain)}` : '';
+                const domainGoalPart = (curriculumSelection.domain && curriculumSelection.domain.domainGoal) ? `الهدف العام للمجال: ${curriculumSelection.domain.domainGoal}` : '';
+                const detailPart = curriculumSelection.detailGoal ? `الهدف التفصيلي: ${typeof curriculumSelection.detailGoal === 'object' ? (curriculumSelection.detailGoal.text || curriculumSelection.detailGoal.id || '') : String(curriculumSelection.detailGoal)}` : '';
+                const indicatorsArr = Array.isArray(curriculumSelection.selectedIndicators) ? curriculumSelection.selectedIndicators.map(String).filter(Boolean) : [];
+                const indicatorsPart = indicatorsArr.length ? `المؤشرات المختارة:\n- ${indicatorsArr.join('\n- ')}` : '';
+                curriculumSelectionSummary = [domainPart, domainGoalPart, detailPart, indicatorsPart].filter(Boolean).join('\n').slice(0, 3000);
+            }
+        } catch (e) {
+            curriculumSelectionSummary = '';
+        }
+
         console.log('--- analyze request body ---');
         console.log({
             childName,
@@ -461,10 +479,15 @@ export async function POST(request) {
             hasAssessmentDoc: !!assessmentDoc,
             hasAssessmentData: !!assessmentData,
             hasAssessmentReport: !!assessmentReport,
-            hasFamilyReport: !!familyReport || !!reportData || !!generatedReport
+            hasFamilyReport: !!familyReport || !!reportData || !!generatedReport,
+            hasCurriculumSelection: !!curriculumSelection
         });
         console.log('--- relevant (truncated) ---');
         console.log(relevant ? relevant.slice(0, 1000) : '(no relevant curriculum)');
+        if (curriculumSelectionSummary) {
+            console.log('--- curriculumSelectionSummary (truncated) ---');
+            console.log(curriculumSelectionSummary.slice(0, 1000));
+        }
 
         // Build prompts and few-shot depending on analysisType
         let baseSystemPromptLines = [
@@ -616,6 +639,13 @@ export async function POST(request) {
                     content: `مرفق مقتطف من تقرير الأسرة/معاينة التقرير — الرجاء الاستفادة منه لتخصيص المخرجات:\n\n${familyReportExcerpt}`
                 });
             }
+            // <<< NEW: append curriculumSelection summary for model to use when client provided messagesForModel
+            if (curriculumSelectionSummary) {
+                messages.push({
+                    role: 'user',
+                    content: `معلومات المناهج المختارة (curriculumSelection):\n\n${curriculumSelectionSummary}\n\nالرجاء: استخدم هذه القيم (المجال، الهدف التفصيلي، مؤشرات الأداء المختارة) لصياغة أهداف الحصة والأنشطة وطرق التقييم المتوافقة مع مستوى الطفل.`
+                });
+            }
         } else {
             // build default few-shot messages and include assessment summary inside system or user segment
             messages = [
@@ -647,6 +677,15 @@ export async function POST(request) {
                     content: `مرفق مقتطف من تقرير الأسرة/معاينة التقرير — الرجاء دمجه/الاستفادة منه لتخصيص المخرجات:\n\n${familyReportExcerpt}`
                 });
             }
+
+            // <<< NEW: add curriculumSelection summary into default messages (so model sees selected domain/detail/indicators)
+            if (curriculumSelectionSummary) {
+                messages.push({
+                    role: 'user',
+                    content: `معلومات المناهج المختارة (curriculumSelection):\n\n${curriculumSelectionSummary}\n\nالرجاء: استخدم هذه القيم (المجال، الهدف التفصيلي، مؤشرات الأداء المختارة) كأساس لصياغة أهداف الحصة، الأنشطة، وطرق التقييم المناسبة لمستوى الطالب. ركّز على توافق الأنشطة مع المؤشرات المختارة.`
+                });
+            }
+
             if (planRequestMeta && typeof planRequestMeta === 'object') {
                 // give the model some meta context if provided
                 const metaShort = JSON.stringify(planRequestMeta).slice(0, 1200);
@@ -692,6 +731,12 @@ export async function POST(request) {
                 doc: familyReport || null,
                 data: reportData || generatedReport || null,
                 excerpt: familyReportExcerpt || null
+            },
+            // <<< NEW: include curriculum selection raw + safe excerpt
+            curriculumSelection: {
+                provided: !!curriculumSelection,
+                raw: curriculumSelection || null,
+                summary: curriculumSelectionSummary || null
             },
             meta: {
                 sentAt: new Date().toISOString()
@@ -870,7 +915,8 @@ export async function POST(request) {
                 assessmentReportExcerpt: assessmentReportExcerpt ? (assessmentReportExcerpt.slice(0, 1200)) : null,
                 sentFamilyReport: !!familyReportObj,
                 familyReportExcerpt: familyReportExcerpt ? familyReportExcerpt.slice(0, 1200) : null,
-                childName: childName || null
+                childName: childName || null,
+                sentCurriculumSelection: !!curriculumSelection
             }
         };
 
